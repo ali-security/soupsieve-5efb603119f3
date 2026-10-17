@@ -4,6 +4,10 @@ import bs4
 import textwrap
 import soupsieve as sv
 import pytest
+import os
+import signal
+import subprocess
+import sys
 
 try:
     from bs4.builder import HTML5TreeBuilder  # noqa: F401
@@ -102,6 +106,60 @@ class TestCase(unittest.TestCase):
         print('----Running Assert Test----')
         with self.assertRaises(exception):
             self.compile_pattern(pattern, namespaces=namespace, custom=custom)
+
+    def assert_syntax_error_no_timeout(self, pattern, timeout=3):
+        """
+        Assert pattern fails with a syntax error and does not time out.
+
+        Patterns that cause catastrophic backtracking would hang instead of failing quickly.
+        Where `SIGALRM` is available, it is used to interrupt a runaway compile. On platforms
+        without `SIGALRM` (Windows), the compile is run in a subprocess that is killed if it
+        does not finish in time (with extra allowance for interpreter startup).
+        """
+
+        print('----Running Assert No Timeout Test----')
+        if hasattr(signal, 'SIGALRM'):
+            def timeout_handler(signum, frame):
+                raise TimeoutError
+
+            previous = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout)
+
+            passed = False
+            try:
+                with self.assertRaises(sv.SelectorSyntaxError):
+                    sv.compile(pattern)
+                passed = True
+            except TimeoutError:
+                pass
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, previous)
+            self.assertTrue(passed, 'Pattern compile timed out')
+        else:
+            code = textwrap.dedent(
+                """
+                import sys
+                import soupsieve as sv
+                try:
+                    sv.compile(sys.stdin.buffer.read().decode('utf-8'))
+                except sv.SelectorSyntaxError:
+                    sys.exit(0)
+                sys.exit(1)
+                """
+            )
+            # Run from the directory containing the `soupsieve` package under test so the child imports it.
+            cwd = os.path.dirname(os.path.dirname(os.path.abspath(sv.__file__)))
+            try:
+                result = subprocess.run(
+                    [sys.executable, '-c', code],
+                    input=pattern.encode('utf-8'),
+                    cwd=cwd,
+                    timeout=timeout * 10
+                )
+            except subprocess.TimeoutExpired:
+                self.fail('Pattern compile timed out')
+            self.assertEqual(result.returncode, 0, 'Pattern compile did not raise a syntax error')
 
     def assert_selector(self, markup, selectors, expected_ids, namespaces={}, custom=None, flags=0):
         """Assert selector."""

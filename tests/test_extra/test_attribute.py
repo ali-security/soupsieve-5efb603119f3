@@ -50,3 +50,43 @@ class TestAttribute(util.TestCase):
             ["div", "0", "1", "2", "3", "pre", "4", "6"],
             flags=util.HTML5
         )
+
+    def test_bad_attribute_unclused(self):
+        """Test bad attribute fails for syntax error, not timeout error."""
+
+        self.assert_syntax_error_no_timeout('[a="' + ('x' * 300))
+
+    def test_bad_attribute_unclosed_single_quote(self):
+        """Test bad attribute with an unclosed single quote fails for syntax error, not timeout error."""
+
+        self.assert_syntax_error_no_timeout("[a='" + ('x' * 300))
+
+    def test_bad_attribute_unclosed_with_escapes(self):
+        """Test bad attribute with an unclosed quote and escapes fails for syntax error, not timeout error."""
+
+        self.assert_syntax_error_no_timeout('[a="' + ('xx\\"' * 100))
+
+    def test_attribute_quoted_value_with_escapes(self):
+        """Test quoted attribute values with escapes still match."""
+
+        markup = """
+        <div id="div">
+        <p id="0" title='say "hi"'></p>
+        <p id="1" title="it's"></p>
+        <p id="2" title="other"></p>
+        </div>
+        """
+
+        self.assert_selector(
+            markup,
+            'p[title="say \\"hi\\""]',
+            ["0"],
+            flags=util.HTML
+        )
+
+        self.assert_selector(
+            markup,
+            "p[title='it\\'s']",
+            ["1"],
+            flags=util.HTML
+        )
